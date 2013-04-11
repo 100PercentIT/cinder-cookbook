@@ -30,8 +30,15 @@ end
 # Set a secure keystone service password
 node.set_unless['cinder']['service_pass'] = secure_password
 
-include_recipe "mysql::client"
-include_recipe "mysql::ruby"
+if node['db']['provider'] == 'mysql'
+  include_recipe "mysql::client"
+  include_recipe "mysql::ruby"
+end
+if node['db']['provider'] == 'postgresql'
+  include_recipe "postgresql::client"
+  include_recipe "postgresql::ruby"
+end
+
 
 platform_options = node["cinder"]["platform"]
 
@@ -55,12 +62,23 @@ Chef::Log.debug("volume_endpoint contains: #{volume_endpoint}")
 
 #creates cinder db and user
 #function defined in osops-utils/libraries
-mysql_info = create_db_and_user("mysql",
-                   node["cinder"]["db"]["name"],
-                   node["cinder"]["db"]["username"],
-                   node["cinder"]["db"]["password"])
+if node['db']['provider'] == 'mysql'
+  mysql_info = create_db_and_user("mysql",
+                     node["cinder"]["db"]["name"],
+                     node["cinder"]["db"]["username"],
+                     node["cinder"]["db"]["password"])
 
-mysql_connect_ip = get_access_endpoint('mysql-master', 'mysql', 'db')["host"]
+  mysql_connect_ip = get_access_endpoint('mysql-master', 'mysql', 'db')["host"]
+end
+if node['db']['provider'] == 'postgresql'
+  postgresql_info = create_db_and_user("postgresql",
+                                  node["cinder"]["db"]["name"],
+                                  node["cinder"]["db"]["username"],
+                                  node["cinder"]["db"]["password"])
+
+  postgresql_connect_ip = get_access_endpoint('postgresql-master', 'postgresql', 'db')["host"]
+end
+
 rabbit_info = get_access_endpoint("rabbitmq-server", "rabbitmq", "queue")
 
 # install packages for cinder-api
@@ -90,28 +108,55 @@ template "/etc/cinder/logging.conf" do
            )
 end
 
-template "/etc/cinder/cinder.conf" do
-  source "cinder.conf.erb"
-  owner "cinder"
-  group "cinder"
-  mode "0600"
-  variables(
-    "netapp_wsdl_url" => node["cinder"]["storage"]["netapp"]["wsdl_url"],
-    "netapp_login" => node["cinder"]["storage"]["netapp"]["login"],
-    "netapp_password" => node["cinder"]["storage"]["netapp"]["password"],
-    "netapp_server_hostname" => node["cinder"]["storage"]["netapp"]["server_hostname"],
-    "netapp_server_port" => node["cinder"]["storage"]["netapp"]["server_port"],
-    "netapp_storage_service" => node["cinder"]["storage"]["netapp"]["storage_service"],
-    "db_ip_address" => mysql_connect_ip,
-    "db_user" => node["cinder"]["db"]["username"],
-    "db_password" => node["cinder"]["db"]["password"],
-    "db_name" => node["cinder"]["db"]["name"],
-    "rabbit_ipaddress" => rabbit_info["host"],
-    "rabbit_port" => rabbit_info["port"],
-    "cinder_api_listen_ip" => cinder_api["host"],
-    "cinder_api_listen_port" => cinder_api["port"]
-  )
-  notifies :run, resources(:execute => "cinder-manage db sync"), :immediately
+if node['db']['provider'] == 'mysql'
+  template "/etc/cinder/cinder.conf" do
+    source "cinder.conf.erb"
+    owner "cinder"
+    group "cinder"
+    mode "0600"
+    variables(
+      "netapp_wsdl_url" => node["cinder"]["storage"]["netapp"]["wsdl_url"],
+      "netapp_login" => node["cinder"]["storage"]["netapp"]["login"],
+      "netapp_password" => node["cinder"]["storage"]["netapp"]["password"],
+      "netapp_server_hostname" => node["cinder"]["storage"]["netapp"]["server_hostname"],
+      "netapp_server_port" => node["cinder"]["storage"]["netapp"]["server_port"],
+      "netapp_storage_service" => node["cinder"]["storage"]["netapp"]["storage_service"],
+      "db_ip_address" => mysql_connect_ip,
+      "db_user" => node["cinder"]["db"]["username"],
+      "db_password" => node["cinder"]["db"]["password"],
+      "db_name" => node["cinder"]["db"]["name"],
+      "rabbit_ipaddress" => rabbit_info["host"],
+      "rabbit_port" => rabbit_info["port"],
+      "cinder_api_listen_ip" => cinder_api["host"],
+      "cinder_api_listen_port" => cinder_api["port"]
+    )
+    notifies :run, resources(:execute => "cinder-manage db sync"), :immediately
+  end
+end
+if node['db']['provider'] == 'postgresql'
+  template "/etc/cinder/cinder.conf" do
+    source "cinder.postgresql.conf.erb"
+    owner "cinder"
+    group "cinder"
+    mode "0600"
+    variables(
+      "netapp_wsdl_url" => node["cinder"]["storage"]["netapp"]["wsdl_url"],
+      "netapp_login" => node["cinder"]["storage"]["netapp"]["login"],
+      "netapp_password" => node["cinder"]["storage"]["netapp"]["password"],
+      "netapp_server_hostname" => node["cinder"]["storage"]["netapp"]["server_hostname"],
+      "netapp_server_port" => node["cinder"]["storage"]["netapp"]["server_port"],
+      "netapp_storage_service" => node["cinder"]["storage"]["netapp"]["storage_service"],
+      "db_ip_address" => postgresql_connect_ip,
+      "db_user" => node["cinder"]["db"]["username"],
+      "db_password" => node["cinder"]["db"]["password"],
+      "db_name" => node["cinder"]["db"]["name"],
+      "rabbit_ipaddress" => rabbit_info["host"],
+      "rabbit_port" => rabbit_info["port"],
+      "cinder_api_listen_ip" => cinder_api["host"],
+      "cinder_api_listen_port" => cinder_api["port"]
+    )
+    notifies :run, resources(:execute => "cinder-manage db sync"), :immediately
+  end
 end
 
 template "/etc/cinder/api-paste.ini" do

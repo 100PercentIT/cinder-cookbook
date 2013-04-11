@@ -43,7 +43,12 @@ elsif cinder_info = get_settings_by_recipe("cinder::cinder-setup", "cinder")
 end
 
 rabbit_info = get_access_endpoint("rabbitmq-server", "rabbitmq", "queue")
-mysql_info = get_access_endpoint("mysql-master", "mysql", "db")
+if node['db']['provider'] == 'mysql'
+  mysql_info = get_access_endpoint("mysql-master", "mysql", "db")
+end
+if node['db']['provider'] == 'postgresql'
+  postgresql_info = get_access_endpoint('postgresql-master', 'postgresql', 'db')
+end
 cinder_api = get_bind_endpoint("cinder", "api")
 
 cinder_volume_network = node["cinder"]["services"]["volume"]["network"]
@@ -68,29 +73,57 @@ template "/etc/cinder/logging.conf" do
   notifies :restart, resources(:service => "cinder-volume"), :delayed
 end
 
-template "/etc/cinder/cinder.conf" do
-  source "cinder.conf.erb"
-  owner "cinder"
-  group "cinder"
-  mode "0600"
-  variables(
-    "netapp_wsdl_url" => node["cinder"]["storage"]["netapp"]["wsdl_url"],
-    "netapp_login" => node["cinder"]["storage"]["netapp"]["login"],
-    "netapp_password" => node["cinder"]["storage"]["netapp"]["password"],
-    "netapp_server_hostname" => node["cinder"]["storage"]["netapp"]["server_hostname"],
-    "netapp_server_port" => node["cinder"]["storage"]["netapp"]["server_port"],
-    "netapp_storage_service" => node["cinder"]["storage"]["netapp"]["storage_service"],
-    "db_ip_address" => mysql_info["host"],
-    "db_user" => node["cinder"]["db"]["username"],
-    "db_password" => cinder_info["db"]["password"],
-    "db_name" => node["cinder"]["db"]["name"],
-    "rabbit_ipaddress" => rabbit_info["host"],
-    "rabbit_port" => rabbit_info["port"],
-    "cinder_api_listen_ip" => cinder_api["host"],
-    "cinder_api_listen_port" => cinder_api["port"],
-    "iscsi_ip_address" => iscsi_ip_address
-  )
-  notifies :restart, resources(:service => "cinder-volume"), :delayed
+if node['db']['provider'] == 'mysql'
+  template "/etc/cinder/cinder.conf" do
+    source "cinder.conf.erb"
+    owner "cinder"
+    group "cinder"
+    mode "0600"
+    variables(
+      "netapp_wsdl_url" => node["cinder"]["storage"]["netapp"]["wsdl_url"],
+      "netapp_login" => node["cinder"]["storage"]["netapp"]["login"],
+      "netapp_password" => node["cinder"]["storage"]["netapp"]["password"],
+      "netapp_server_hostname" => node["cinder"]["storage"]["netapp"]["server_hostname"],
+      "netapp_server_port" => node["cinder"]["storage"]["netapp"]["server_port"],
+      "netapp_storage_service" => node["cinder"]["storage"]["netapp"]["storage_service"],
+      "db_ip_address" => mysql_info["host"],
+      "db_user" => node["cinder"]["db"]["username"],
+      "db_password" => cinder_info["db"]["password"],
+      "db_name" => node["cinder"]["db"]["name"],
+      "rabbit_ipaddress" => rabbit_info["host"],
+      "rabbit_port" => rabbit_info["port"],
+      "cinder_api_listen_ip" => cinder_api["host"],
+      "cinder_api_listen_port" => cinder_api["port"],
+      "iscsi_ip_address" => iscsi_ip_address
+    )
+    notifies :restart, resources(:service => "cinder-scheduler"), :delayed
+  end
+end
+if node['db']['provider'] == 'postgresql'
+  template "/etc/cinder/cinder.conf" do
+    source "cinder.postgresql.conf.erb"
+    owner "cinder"
+    group "cinder"
+    mode "0600"
+    variables(
+      "netapp_wsdl_url" => node["cinder"]["storage"]["netapp"]["wsdl_url"],
+      "netapp_login" => node["cinder"]["storage"]["netapp"]["login"],
+      "netapp_password" => node["cinder"]["storage"]["netapp"]["password"],
+      "netapp_server_hostname" => node["cinder"]["storage"]["netapp"]["server_hostname"],
+      "netapp_server_port" => node["cinder"]["storage"]["netapp"]["server_port"],
+      "netapp_storage_service" => node["cinder"]["storage"]["netapp"]["storage_service"],
+      "db_ip_address" => postgresql_info["host"],
+      "db_user" => node["cinder"]["db"]["username"],
+      "db_password" => cinder_info["db"]["password"],
+      "db_name" => node["cinder"]["db"]["name"],
+      "rabbit_ipaddress" => rabbit_info["host"],
+      "rabbit_port" => rabbit_info["port"],
+      "cinder_api_listen_ip" => cinder_api["host"],
+      "cinder_api_listen_port" => cinder_api["port"],
+      "iscsi_ip_address" => iscsi_ip_address
+    )
+    notifies :restart, resources(:service => "cinder-scheduler"), :delayed
+  end
 end
 
 service "iscsitarget" do
